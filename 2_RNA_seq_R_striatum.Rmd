@@ -1,0 +1,667 @@
+---
+title: "Striatum RNAseq Differential Expression"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+--------
+***Outlier STN7 can be excluded due to poor RNA quality (low 260/230)***
+***Outliers excluded due to low 260/280 < 1.90 and/or 260/230 < 1.50   -- STN5 , STN7, STN19 were not sequenced by novogene***
+-----------
+
+#Load libraries
+```{r include=FALSE}
+library(ggplot2)
+library(rgl)
+library(tidyverse)
+library(tidyr)
+library(RColorBrewer)
+library(expss)
+library(dplyr)
+library(BiocManager)
+library(Rsamtools)
+library(GenomicAlignments)
+library(BiocParallel)
+library(GenomicFeatures)
+library(Rsubread)
+library(DESeq2)
+library(Rsamtools)
+library(pheatmap)
+library(AnnotationDbi)
+library(Rattus.norvegicus)
+library(EnhancedVolcano)
+library(TxDb.Rnorvegicus.UCSC.rn6.refGene)
+library(topGO)
+library(org.Rn.eg.db)
+library(gridExtra)
+library(DOSE)
+library(clusterProfiler)
+library(fgsea)
+library(factoextra)
+library(pathview)
+```
+
+
+
+#***Using DeSeq2***
+We can now construct a DESeqDataSet object to formulate a starting point for our analysis. You need to add an appropriate design for analysis
+
+#removing outliers identified to clean and rerun analysis
+```{r}
+se1<- se[,se$tissue_type == "striatum"] ##change tissue type here
+#se1<-se1[ , !se1$animal_ID ==c("7-347","5-115","19-067")] #remove specific outliers here
+#F_se<-se1[,se1$sex == "F"]
+#M_se<-se1[,se1$sex == "M"]
+#test<-M_se #[ , !se1$animal_ID ==] #remove specific outliers here
+#colData(test)
+#test$group<-paste(test$exposure, test$sex, sep = "_") #create a group variable for easy comparison
+#test$group
+
+#test$group<-factor(test$group, levels = c("Sham_M","Exp_M"))
+dds <- DESeqDataSet(se1, 
+                    design = ~ exposure) #comparison done between high treatment and vehicle?
+```
+
+#***Exploratory analysis and visualization***
+*transformations*
+The variance stabilizing transformation (VST) a goal of stablizing the variance across the range of values. produce log2-like values for high counts. 
+```{r}
+colData(dds)
+
+vsd <- vst(dds)
+```
+
+Now for visuals, ploat a principal components analysis (PCA) using  ggplot2
+```{r}
+data <- plotPCA(vsd, 
+                  intgroup = 'exposure' , 
+                  returnData=TRUE)
+data
+percentVar <- round(100 * attr(data, 
+                                 "percentVar"))
+```
+#PCA Plot
+```{r}
+tiff(file = 'Male_STN_PCA.tiff', units="in", width=8, height=5, res=1000)
+PCA<-ggplot(data, aes(PC1, 
+                   PC2, 
+                   color=exposure, text(label= name))) + 
+  geom_point(size=4,) +
+  stat_ellipse()+
+  ggtitle("Male Striatum")+
+  xlab(paste0("PC1: ",
+              percentVar[1],
+              "% variance")) +
+  ylab(paste0("PC2: ",
+              percentVar[2],
+              "% variance"))
+PCA
+dev.off()
+PCA
+```
+
+#***Differential Expression***
+Lets run a differential expression pipeline using the raw counts
+
+This function will print out a message for the various steps it performs. These are described in more detail in the manual page for DESeq, which can be accessed by typing ?DESeq. Briefly these are: the estimation of size factors (controlling for differences in the sequencing depth of the samples), the estimation of dispersion values for each gene, and fitting a generalized linear model.
+```{r}
+dds <- DESeq(dds)
+resultsNames(dds)
+```
+Calling results without any arguments will extract the estimated log2 fold changes and p values for the last variable in the design formula. If there are more than 2 levels for this variable, results will extract the results table for a comparison of the last level over the first level. Treatment 6 vs vehicle
+```{r}
+res_high<-results(dds, name = "exposure_high_vs_sham")
+res_medium<-results(dds, name = "exposure_medium_vs_sham")
+res_low<-results(dds, name = "exposure_low_vs_sham")
+
+summary(res_high)
+summary(res_medium)
+summary(res_low)
+```
+
+If we lower the false discovery rate threshold, we should also tell this value to results(), so that the function will use an alternative threshold for the optimal independent filtering step:
+```{r}
+table(M_res$padj < .05)
+```
+If we want to raise the log2 fold change threshold, so that we test for genes that show more substantial changes due to treatment, we simply supply a value on the log2 scale. For example, by specifying lfcThreshold=1, we test for genes that show significant effects of treatment on gene counts more than doubling or less than halving, because \(2^1 = 2\).
+```{r}
+table(M_res$padj < 0.1)
+```
+
+When conducting multiple testing we have to be cautious just reporting p values below a certain threshold because of the false discovery rate. If we assume the null hypothesis is true for all genes and we are interested in a significance level of 0.05. Then, by definition of the p value, we expect 5% of the genes to have a pvalue below 0.05.
+```{r}
+sum(!is.na(M_res$pvalue)) 
+```
+If we just considered the list of genes with a p value below 0.05 as differentially expressed, this list should therefore be expected to contain many false positives:
+```{r}
+round(sum(!is.na(M_res$pvalue)) * .05) # expected 'null' less than 0.05
+```
+
+```{r}
+sum(M_res$pvalue < .05, na.rm=TRUE) # observed p < .05
+```
+expected ratio of false positives in the set with p < .05
+```{r}
+round(sum(!is.na(M_res$pvalue))*.05 / sum(M_res$pvalue < .05, 
+                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
+```
+Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
+```{r}
+sum(M_res$padj < 0.1, 
+    na.rm=TRUE)
+```
+
+#***Annotating results***
+```{r}
+columns(Rattus.norvegicus)
+```
+
+How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
+```{r}
+M_res$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(M_res), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+head(M_res) #take a look at the row names and the symbol column.
+```
+
+```{r}
+M_res$TXname <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(M_res), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+head(M_res) #take a look at the row names and the symbol column.
+```
+
+```{r}
+M_res$ONTOLOGY <- mapIds(Rattus.norvegicus,
+                     keys=row.names(M_res),
+                     column="ONTOLOGYALL",
+                     keytype="GENEID",
+                     multiVals="first")
+head(M_res)
+```
+
+```{r}
+M_res$Genename <- mapIds(Rattus.norvegicus,
+                     keys=row.names(M_res),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+M_res
+```
+
+```{r}
+M_res$GOID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(M_res),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+M_res
+```
+
+```{r}
+M_res$ensembl <- mapIds(Rattus.norvegicus,
+                     keys=row.names(M_res),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+M_res
+```
+```{r}
+M_res$ENTREZID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(M_res),
+                     column="ENTREZID", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+M_res
+```
+
+```{r}
+M_resOrdered <- M_res[order(M_res$padj),] #reorder the genes based on significance
+head(M_resOrdered, 10)
+```
+
+#***Plotting results***
+Heatmaps are a good way to visualize the most significant genes
+```{r}
+mat <- assay(vsd)[ head(order(M_res$padj),
+                            30), #top 30 genes 
+                       ]
+#mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(vsd)[,
+                                     "exposure"])
+```
+
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/SubQ_PCB52/RNA_seq/Male_STN_heatmap.tiff", units="in", width=8, height=5, res=1000)
+heatmap<-pheatmap(mat, 
+         annotation_col=df,
+         labels_row = M_resOrdered$symbol,
+         scale = "row",
+         fontsize = 6,
+         main = "Male Striatum Heatmap")
+heatmap
+dev.off()
+heatmap
+```
+
+#***volcano plots***
+```{r}
+tiff(file = 'M_volcano_plot_STN.tiff', units="in", width=8, height=5, res=1000)
+M_vol1<- EnhancedVolcano(M_res,
+    lab = M_res$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Male Striatum",
+    subtitle = "",
+    ylim = c(0, -log10(10e-8)),
+    xlim = c(log2(10e-3), -log2(10e-3)),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+M_vol1
+dev.off()
+M_vol1
+```
+#Export Male TSV results
+
+```{r}
+M_resOrdered <- as.data.frame(M_resOrdered)
+write_tsv(M_resOrdered, file="Male_STN_results.tsv")
+write.csv(M_resOrdered, file="Male_STN_results.csv")
+write.csv(as.data.frame(assay(M_se)), file= "Male_STN_counts.csv")
+```
+
+
+##Female Results (comparison between sham and exposed females)
+```{r}
+test<-F_se #[ , !se1$animal_ID ==] #remove specific outliers here
+colData(test)
+#test$group<-paste(test$exposure, test$sex, sep = "_") #create a group variable for easy comparison
+#test$group
+
+#test$group<-factor(test$group, levels = c("Sham_M","Exp_M"))
+dds <- DESeqDataSet(test, 
+                    design = ~ exposure) #comparison done between high treatment and vehicle?
+```
+
+#***Exploratory analysis and visualization***
+*transformations*
+The variance stabilizing transformation (VST) a goal of stablizing the variance across the range of values. produce log2-like values for high counts. 
+```{r}
+colData(dds)
+
+vsd <- vst(dds)
+```
+
+Now for visuals, ploat a principal components analysis (PCA) using  ggplot2
+```{r}
+data <- plotPCA(vsd, 
+                  intgroup = 'exposure' , 
+                  returnData=TRUE)
+data
+percentVar <- round(100 * attr(data, 
+                                 "percentVar"))
+```
+#PCA Plot
+```{r}
+tiff(file = 'Female_STN_PCA.tiff', units="in", width=8, height=5, res=1000)
+PCA<-ggplot(data, aes(PC1, 
+                   PC2, 
+                   color=exposure, text(label= name))) + 
+  geom_point(size=4,) +
+  stat_ellipse()+
+  ggtitle("Female Striatum")+
+  xlab(paste0("PC1: ",
+              percentVar[1],
+              "% variance")) +
+  ylab(paste0("PC2: ",
+              percentVar[2],
+              "% variance"))
+PCA
+dev.off()
+PCA
+```
+#***Differential Expression***
+Lets run a differential expression pipeline using the raw counts
+
+This function will print out a message for the various steps it performs. These are described in more detail in the manual page for DESeq, which can be accessed by typing ?DESeq. Briefly these are: the estimation of size factors (controlling for differences in the sequencing depth of the samples), the estimation of dispersion values for each gene, and fitting a generalized linear model.
+```{r}
+dds <- DESeq(dds)
+resultsNames(dds)
+```
+Calling results without any arguments will extract the estimated log2 fold changes and p values for the last variable in the design formula. If there are more than 2 levels for this variable, results will extract the results table for a comparison of the last level over the first level. Treatment 6 vs vehicle
+```{r}
+F_res <- results(dds)
+F_res
+summary(F_res)
+```
+
+If we lower the false discovery rate threshold, we should also tell this value to results(), so that the function will use an alternative threshold for the optimal independent filtering step:
+```{r}
+table(F_res$padj < .05)
+```
+If we want to raise the log2 fold change threshold, so that we test for genes that show more substantial changes due to treatment, we simply supply a value on the log2 scale. For example, by specifying lfcThreshold=1, we test for genes that show significant effects of treatment on gene counts more than doubling or less than halving, because \(2^1 = 2\).
+```{r}
+table(F_res$padj < 0.1)
+```
+
+When conducting multiple testing we have to be cautious just reporting p values below a certain threshold because of the false discovery rate. If we assume the null hypothesis is true for all genes and we are interested in a significance level of 0.05. Then, by definition of the p value, we expect 5% of the genes to have a pvalue below 0.05.
+```{r}
+sum(!is.na(F_res$pvalue)) 
+```
+If we just considered the list of genes with a p value below 0.05 as differentially expressed, this list should therefore be expected to contain many false positives:
+```{r}
+round(sum(!is.na(F_res$pvalue)) * .05) # expected 'null' less than 0.05
+```
+
+```{r}
+sum(F_res$pvalue < .05, na.rm=TRUE) # observed p < .05
+```
+expected ratio of false positives in the set with p < .05
+```{r}
+round(sum(!is.na(F_res$pvalue))*.05 / sum(F_res$pvalue < .05, 
+                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
+```
+Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
+```{r}
+sum(F_res$padj < 0.1, 
+    na.rm=TRUE)
+```
+
+#***Annotating results***
+How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
+```{r}
+F_res$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(F_res), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+```
+
+```{r}
+F_res$TXname <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(F_res), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+F_res$ONTOLOGY <- mapIds(Rattus.norvegicus,
+                     keys=row.names(F_res),
+                     column="ONTOLOGYALL",
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+F_res$Genename <- mapIds(Rattus.norvegicus,
+                     keys=row.names(F_res),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+F_res$GOID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(F_res),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+F_res$ensembl <- mapIds(Rattus.norvegicus,
+                     keys=row.names(F_res),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+F_res$ENTREZID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(F_res),
+                     column="ENTREZID", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+F_resOrdered <- F_res[order(F_res$padj),] #reorder the genes based on significance
+head(F_resOrdered, 10)
+```
+
+#***Plotting Female results***
+Heatmaps are a good way to visualize the most significant genes
+```{r}
+mat <- assay(vsd)[ head(order(F_res$padj),
+                            30), #top 30 genes 
+                       ]
+#mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(vsd)[,"exposure"])
+```
+
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/SubQ_PCB52/RNA_seq/F_STN_heatmap.tiff", units="in", width=8, height=5, res=1000)
+heatmap<-pheatmap(mat, 
+         annotation_col=df,
+         labels_row = F_resOrdered$symbol,
+         scale = "row",
+         fontsize = 6,
+         main = "Female Striatum Heatmap")
+heatmap
+dev.off()
+heatmap
+```
+
+#***Female volcano plot***
+```{r}
+tiff(file = 'F_volcano_plot_STN.tiff', units="in", width=8, height=5, res=1000)
+F_vol1<- EnhancedVolcano(F_res,
+    lab = F_res$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Female Striatum",
+    subtitle = "",
+    ylim = c(0, -log10(10e-8)),
+    xlim = c(log2(10e-3), -log2(10e-3)),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+F_vol1
+dev.off()
+F_vol1
+```
+#***Exporting_female_report***
+```{r}
+F_resOrdered <- as.data.frame(F_resOrdered)
+write_tsv(F_resOrdered, file="Female_STN_results.tsv")
+write.csv(F_resOrdered, file="Female_STN_results.csv")
+write.csv(as.data.frame(assay(F_se)), file= "Female_STN_counts.csv")
+```
+
+
+----------------
+#**MALE gene enrichment analysis (GSEA)**
+```{r}
+x<- M_res[order(M_res$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+head(x)
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+Mgse <- gseGO(geneList= gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Rn.eg.db, 
+             pAdjustMethod = "none")
+
+```
+
+```{r}
+tiff(file = 'Male_Striatum_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(Mgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Male Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+
+# MALE KEGG pathview
+```{r}
+x<- M_res[order(M_res$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ENTREZID
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "rno"
+Mkk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+
+tiff(file = 'Male_Striatum_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
+dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Male Striatum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+# Produce the native KEGG plot (PNG)
+male_Striatum <- pathview(gene.data=gene_list, pathway.id="04724", species = kegg_organism)
+
+```
+
+#**FEMALE gene enrichment analysis (GSEA)**
+```{r}
+x<- F_res[order(F_res$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+Fgse <- gseGO(geneList= gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Rn.eg.db, 
+             pAdjustMethod = "none")
+
+```
+```{r}
+tiff(file = 'Female Striatum_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(Fgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Female Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+
+#FEMALE KEGG pathview for FEMALE
+```{r}
+x<- F_res[order(F_res$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ENTREZID
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "rno"
+Fkk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+
+tiff(file = 'Female Striatum_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
+dot<-dotplot(Fkk2, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Female Striatum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+# Produce the native KEGG plot (PNG)
+female_Striatum <- pathview(gene.data=gene_list, pathway.id="04360", species = kegg_organism)
+
+```

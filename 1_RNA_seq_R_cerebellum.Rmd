@@ -1,0 +1,770 @@
+---
+title: "CRBLM RNAseq Differential Expression"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+--------
+***Outlier CRB5 can be excluded due to Sequence overrepresentation in fastqc***
+***Outliers excluded due to low 260/280 < 1.90 and/or 260/230 < 1.50   -- CRB17 were not sequenced by novogene***
+-----------
+#installing bioconductor packages
+```{r include=FALSE}
+#install.packages("devtools")
+#install.packages("BiocManager")
+#BiocManager::install("TxDb.Rnorvegicus.UCSC.rn6.refGene")
+#BiocManager::install("Rsubread")
+#BiocManager::install("DESeq2")
+#BiocManager::install("Rattus.norvegicus")
+#BiocManager::install("EnhancedVolcano")
+#BiocManager::install("topGO")
+#BiocManager::install("org.Rn.eg.db")
+#BiocManager::install("DOSE")
+#BiocManager::install("clusterProfiler")
+#BiocManager::install("pathview")
+#BiocManager::install("fgsea")
+```
+
+
+#Load libraries
+```{r include=FALSE}
+library(ggplot2)
+library(rgl)
+library(tidyr)
+library(tidyverse)
+library(RColorBrewer)
+library(expss)
+library(dplyr)
+library(BiocManager)
+library(Rsamtools)
+library(GenomicAlignments)
+library(BiocParallel)
+library(GenomicFeatures)
+library(Rsubread)
+library(DESeq2)
+library(Rsamtools)
+library(pheatmap)
+library(AnnotationDbi)
+library(Rattus.norvegicus)
+library(EnhancedVolcano)
+library(TxDb.Rnorvegicus.UCSC.rn6.refGene)
+library(topGO)
+library(org.Rn.eg.db)
+library(gridExtra)
+library(DOSE)
+library(clusterProfiler)
+library(fgsea)
+library(factoextra)
+library(pathview)
+```
+
+
+#***Using DeSeq2***
+We can now construct a DESeqDataSet object to formulate a starting point for our analysis. You need to add an appropriate design for analysis
+
+#removing outliers identified to clean and rerun analysis
+```{r}
+se1<- se[,se$tissue_type == "cerebellum"] ##change tissue type here
+#se1<-se1[ , !se1$bam_ID == c("CRBM_S32.bam","CRBM_S3.bam")] #remove specific outliers here
+se1 <- se1[ rowSums(assay(se1)) >= 10, ]
+#F_se<-se1[,se1$sex == "F"]
+#M_se<-se1[,se1$sex == "M"]
+#test<-M_se #[ , !se1$animal_ID ==] #remove specific outliers here
+#colData(test)
+#se1$group<-paste(se1$exposure, se1$batch_id, sep = "_") #create a group variable for easy comparison
+#test$group
+head(assay(se1))
+#colData(se1)
+#test$group<-factor(test$group, levels = c("Sham_M","Exp_M"))
+dds <- DESeqDataSet(se1, 
+                    design = ~ batch_id + exposure) #comparison done between high treatment and vehicle?
+```
+
+#***Exploratory analysis and visualization***
+*transformations*
+The variance stabilizing transformation (VST) a goal of stablizing the variance across the range of values. produce log2-like values for high counts. 
+```{r}
+colData(dds)
+
+vsd <- vst(dds)
+```
+
+Now for visuals, ploat a principal components analysis (PCA) using  ggplot2
+```{r}
+data <- plotPCA(vsd, 
+                  intgroup = 'exposure' , 
+                  returnData=TRUE)
+data
+percentVar <- round(100 * attr(data, 
+                                 "percentVar"))
+```
+#PCA Plot
+```{r}
+tiff(file = 'Figures/PCA/Male_CRBLM_PCA.tiff', units="in", width=8, height=5, res=1000)
+PCA<-ggplot(data, aes(PC1, 
+                   PC2, 
+                   color=exposure, text(label= name))) + 
+  geom_point(size=4,) +
+  stat_ellipse()+
+  ggtitle("Male cerebellum")+
+  xlab(paste0("PC1: ",
+              percentVar[1],
+              "% variance")) +
+  ylab(paste0("PC2: ",
+              percentVar[2],
+              "% variance"))
+PCA
+dev.off()
+PCA
+```
+
+#***Differential Expression***
+Lets run a differential expression pipeline using the raw counts
+
+This function will print out a message for the various steps it performs. These are described in more detail in the manual page for DESeq, which can be accessed by typing ?DESeq. Briefly these are: the estimation of size factors (controlling for differences in the sequencing depth of the samples), the estimation of dispersion values for each gene, and fitting a generalized linear model.
+```{r}
+dds <- DESeq(dds)
+resultsNames(dds)
+```
+Calling results without any arguments will extract the estimated log2 fold changes and p values for the last variable in the design formula. If there are more than 2 levels for this variable, results will extract the results table for a comparison of the last level over the first level. Treatment 6 vs vehicle
+```{r}
+res_high<-results(dds, name = "exposure_high_vs_sham")
+res_medium<-results(dds, name = "exposure_medium_vs_sham")
+res_low<-results(dds, name = "exposure_low_vs_sham")
+
+summary(res_high)
+summary(res_medium)
+summary(res_low)
+```
+
+If we lower the false discovery rate threshold, we should also tell this value to results(), so that the function will use an alternative threshold for the optimal independent filtering step:
+```{r}
+table(res_high$padj < .05)
+```
+If we want to raise the log2 fold change threshold, so that we test for genes that show more substantial changes due to treatment, we simply supply a value on the log2 scale. For example, by specifying lfcThreshold=1, we test for genes that show significant effects of treatment on gene counts more than doubling or less than halving, because \(2^1 = 2\).
+```{r}
+table(res_high$padj < 0.1)
+```
+
+When conducting multiple testing we have to be cautious just reporting p values below a certain threshold because of the false discovery rate. If we assume the null hypothesis is true for all genes and we are interested in a significance level of 0.05. Then, by definition of the p value, we expect 5% of the genes to have a pvalue below 0.05.
+```{r}
+sum(!is.na(res_high$pvalue)) 
+```
+If we just considered the list of genes with a p value below 0.05 as differentially expressed, this list should therefore be expected to contain many false positives:
+```{r}
+round(sum(!is.na(res_high$pvalue)) * .05) # expected 'null' less than 0.05
+```
+
+```{r}
+sum(res_high$pvalue < .05, na.rm=TRUE) # observed p < .05
+```
+expected ratio of false positives in the set with p < .05
+```{r}
+round(sum(!is.na(res_high$pvalue))*.05 / sum(res_high$pvalue < .05, 
+                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
+```
+Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
+```{r}
+sum(res_high$padj < 0.1, 
+    na.rm=TRUE)
+```
+
+#***Annotating results***
+```{r}
+columns(Rattus.norvegicus)
+```
+
+How to assign actual gene names to our counts. Using an annotation package for rattus. 
+```{r}
+res_high$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(res_high), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+head(res_high) #take a look at the row names and the symbol column.
+```
+
+```{r}
+res_high$TXname <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(res_high), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+head(res_high) #take a look at the row names and the symbol column.
+```
+
+```{r}
+res_high$ONTOLOGY <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_high),
+                     column="ONTOLOGYALL",
+                     keytype="GENEID",
+                     multiVals="first")
+head(res_high)
+```
+
+```{r}
+res_high$Genename <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_high),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+res_high
+```
+
+```{r}
+res_high$GOID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_high),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+res_high
+```
+
+```{r}
+res_high$ensembl <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_high),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+res_high
+```
+```{r}
+res_high$ENTREZID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_high),
+                     column="ENTREZID", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+res_high
+```
+
+```{r}
+res_medium$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(res_medium), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+ #take a look at the row names and the symbol column.
+```
+
+```{r}
+res_medium$TXname <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(res_medium), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+ #take a look at the row names and the symbol column.
+```
+
+```{r}
+res_medium$ONTOLOGY <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_medium),
+                     column="ONTOLOGYALL",
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+res_medium$Genename <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_medium),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+res_medium$GOID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_medium),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+res_medium$ensembl <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_medium),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+res_medium$ENTREZID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_medium),
+                     column="ENTREZID", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+res_low$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(res_low), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+ #take a look at the row names and the symbol column.
+```
+
+```{r}
+res_low$TXname <- mapIds(Rattus.norvegicus, #which annotation package model to use
+                     keys=row.names(res_low), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+ #take a look at the row names and the symbol column.
+```
+
+```{r}
+res_low$ONTOLOGY <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_low),
+                     column="ONTOLOGYALL",
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+res_low$Genename <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_low),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+res_low$GOID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_low),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+
+```
+
+```{r}
+res_low$ensembl <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_low),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+res_low$ENTREZID <- mapIds(Rattus.norvegicus,
+                     keys=row.names(res_low),
+                     column="ENTREZID", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+
+```{r}
+High_resOrdered <- res_high[order(res_high$padj),]
+medium_resOrdered <- res_medium[order(res_medium$padj),]
+low_resOrdered <- res_low[order(res_low$padj),] #reorder the genes based on significance
+```
+
+#***Plotting results***
+Heatmaps are a good way to visualize the most significant genes
+```{r}
+mat <- assay(vsd)[ head(order(res_high$padj),
+                            30), #top 30 genes 
+                       ]
+#mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(vsd)[,
+                                     "exposure"])
+```
+
+```{r}
+tiff(file = "Figures/heatmap/High_Male_CRBLM_heatmap.tiff", units="in", width=8, height=5, res=1000)
+heatmap<-pheatmap(mat, 
+         annotation_col=df,
+         labels_row = High_resOrdered$symbol,
+         scale = "row",
+         fontsize = 6,
+         main = "High Male Cerebellum Heatmap")
+heatmap
+dev.off()
+heatmap
+```
+
+#***volcano plots***
+```{r}
+tiff(file = 'Figures/volcano/High_volcano_plot_CRBLM.tiff', units="in", width=8, height=5, res=1000)
+M_vol1<- EnhancedVolcano(res_high,
+    lab = res_high$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "High Exposure Male Cerebellum",
+    subtitle = "",
+    ylim = c(0, -log10(10e-8)),
+    xlim = c(log2(10e-3), -log2(10e-3)),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+M_vol1
+dev.off()
+
+M_vol1
+```
+#Export Male TSV results
+
+```{r}
+High_resOrdered <- as.data.frame(High_resOrdered)
+write_tsv(High_resOrdered, file="Result_spreadsheets/High_Male_CRBLM_results.tsv")
+write.csv(High_resOrdered, file="Result_spreadsheets/High_Male_CRBLM_results.csv")
+write.csv(as.data.frame(assay(se1)), file= "Result_spreadsheets/High_Male_CRBLM_counts.csv")
+```
+
+
+```{r}
+mat <- assay(vsd)[ head(order(res_medium$padj),
+                            30), #top 30 genes 
+                       ]
+#mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(vsd)[,
+                                     "exposure"])
+```
+
+```{r}
+tiff(file = "Figures/heatmap/Medium_Male_CRBLM_heatmap.tiff", units="in", width=8, height=5, res=1000)
+heatmap<-pheatmap(mat, 
+         annotation_col=df,
+         labels_row = medium_resOrdered$symbol,
+         scale = "row",
+         fontsize = 6,
+         main = "Medium Male Cerebellum Heatmap")
+heatmap
+dev.off()
+heatmap
+```
+
+```{r}
+tiff(file = 'Figures/volcano/Medium_volcano_plot_CRBLM.tiff', units="in", width=8, height=5, res=1000)
+M_vol1<- EnhancedVolcano(res_medium,
+    lab = res_medium$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Medium Exposure Male Cerebellum",
+    subtitle = "",
+    ylim = c(0, -log10(10e-8)),
+    xlim = c(log2(10e-3), -log2(10e-3)),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+M_vol1
+dev.off()
+
+M_vol1
+```
+
+```{r}
+medium_resOrdered <- as.data.frame(medium_resOrdered)
+write_tsv(medium_resOrdered, file="Result_spreadsheets/Medium_Male_CRBLM_results.tsv")
+write.csv(medium_resOrdered, file="Result_spreadsheets/Medium_Male_CRBLM_results.csv")
+write.csv(as.data.frame(assay(se1)), file= "Result_spreadsheets/Medium_Male_CRBLM_counts.csv")
+```
+
+```{r}
+mat <- assay(vsd)[ head(order(res_low$padj),
+                            30), #top 30 genes 
+                       ]
+#mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(vsd)[,
+                                     "exposure"])
+```
+
+```{r}
+tiff(file = "Figures/heatmap/Low_Male_CRBLM_heatmap.tiff", units="in", width=8, height=5, res=1000)
+heatmap<-pheatmap(mat, 
+         annotation_col=df,
+         labels_row = low_resOrdered$symbol,
+         scale = "row",
+         fontsize = 6,
+         main = "Low Male Cerebellum Heatmap")
+heatmap
+dev.off()
+heatmap
+```
+
+```{r}
+tiff(file = 'Figures/volcano/Low_volcano_plot_CRBLM.tiff', units="in", width=8, height=5, res=1000)
+M_vol1<- EnhancedVolcano(res_low,
+    lab = res_low$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Low Exposure Male Cerebellum",
+    subtitle = "",
+    ylim = c(0, -log10(10e-8)),
+    xlim = c(log2(10e-3), -log2(10e-3)),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+M_vol1
+dev.off()
+
+M_vol1
+```
+
+```{r}
+low_resOrdered <- as.data.frame(low_resOrdered)
+write_tsv(low_resOrdered, file="Result_spreadsheets/Low_Male_CRBLM_results.tsv")
+write.csv(low_resOrdered, file="Result_spreadsheets/Low_Male_CRBLM_results.csv")
+write.csv(as.data.frame(assay(se1)), file= "Result_spreadsheets/Low_Male_CRBLM_counts.csv")
+```
+
+
+---------------
+
+#**MALE gene enrichment analysis (GSEA)**
+```{r}
+x<- res_high[order(res_high$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+head(x)
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+Mgse <- gseGO(geneList= gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Rn.eg.db, 
+             pAdjustMethod = "none")
+
+```
+
+```{r}
+tiff(file = 'Figures/Enrichment/High_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(Mgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("High Male Cerebellum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+
+# MALE KEGG pathview
+```{r}
+x<- res_high[order(res_high$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ENTREZID
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "rno"
+Mkk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+
+tiff(file = 'Figures/Enrichment/High_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
+dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("High Male Cerebellum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+# Produce the native KEGG plot (PNG)
+#male_cerebellum <- pathview(gene.data=gene_list, pathway.id="05012", species = kegg_organism)
+
+```
+
+```{r}
+x<- res_medium[order(res_medium$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+head(x)
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+Mgse <- gseGO(geneList= gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Rn.eg.db, 
+             pAdjustMethod = "none")
+
+```
+
+```{r}
+tiff(file = 'Figures/Enrichment/Medium_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(Mgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Medium Male Cerebellum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+
+```{r}
+x<- res_medium[order(res_medium$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ENTREZID
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "rno"
+Mkk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+
+tiff(file = 'Figures/Enrichment/Medium_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
+dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Medium Male Cerebellum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- res_low[order(res_low$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+head(x)
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+Mgse <- gseGO(geneList= gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Rn.eg.db, 
+             pAdjustMethod = "none")
+
+```
+
+```{r}
+tiff(file = 'Figures/Enrichment/Low_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(Mgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Low Male Cerebellum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+
+```{r}
+x<- res_low[order(res_low$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ENTREZID
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "rno"
+Mkk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+
+tiff(file = 'Figures/Enrichment/Low_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
+dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Low Male Cerebellum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
