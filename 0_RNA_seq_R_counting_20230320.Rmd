@@ -106,6 +106,7 @@ colData(se) #metadata about the samples
 colData(se)<-DataFrame(meta_data) #take the sample info and assign it as the metadata
 se$exposure<- as.factor(se$exposure)
 se$tissue_type<- as.factor(se$tissue_type)#organizing structure of groups
+se$batch_id<- as.factor(se$batch_id)
 se$exposure<- relevel(se$exposure, 
                            "sham") # tells the system which group is "control"
 se <- se[ rowSums(assay(se)) >= 10, ] #remove genes that have a total count less than 10, a good prefilter measure

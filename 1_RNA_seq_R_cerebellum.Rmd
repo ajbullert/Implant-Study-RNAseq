@@ -5,8 +5,7 @@ output:
   html_notebook: default
 ---
 --------
-***Outlier CRB5 can be excluded due to Sequence overrepresentation in fastqc***
-***Outliers excluded due to low 260/280 < 1.90 and/or 260/230 < 1.50   -- CRB17 were not sequenced by novogene***
+
 -----------
 #installing bioconductor packages
 ```{r include=FALSE}
