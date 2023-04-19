@@ -55,6 +55,17 @@ library(clusterProfiler)
 library(fgsea)
 library(factoextra)
 library(pathview)
+library(enrichplot)
+library(readr)
+library(MuSiC)
+library(MuSiC2)
+library(ggpubr)
+library(ggsignif)
+library(rstatix)
+library(scRNAseq)
+library(VennDiagram)
+library(stringr)
+library(tibble)
 ```
 
 
@@ -72,12 +83,19 @@ se1 <- se1[ rowSums(assay(se1)) >= 10, ]
 #colData(test)
 #se1$group<-paste(se1$exposure, se1$batch_id, sep = "_") #create a group variable for easy comparison
 #test$group
+se1 <- se1[ , order( colnames( se1 ) ) ]
 head(assay(se1))
 #colData(se1)
 #test$group<-factor(test$group, levels = c("Sham_M","Exp_M"))
 dds <- DESeqDataSet(se1, 
                     design = ~ batch_id + exposure) #comparison done between high treatment and vehicle?
 ```
+
+```{r}
+dds$exposure<- factor(dds$exposure, levels = c("sham","low","medium","high"))
+
+```
+
 
 #***Exploratory analysis and visualization***
 *transformations*
@@ -88,7 +106,8 @@ colData(dds)
 vsd <- vst(dds)
 ```
 
-Now for visuals, ploat a principal components analysis (PCA) using  ggplot2
+
+Now for visuals, plot a principal components analysis (PCA) using  ggplot2
 ```{r}
 data <- plotPCA(vsd, 
                   intgroup = 'exposure' , 
@@ -100,18 +119,26 @@ percentVar <- round(100 * attr(data,
 #PCA Plot
 ```{r}
 tiff(file = 'Figures/PCA/Male_CRBLM_PCA.tiff', units="in", width=8, height=5, res=1000)
-PCA<-ggplot(data, aes(PC1, 
+PCA <-ggplot(data, aes(PC1, 
                    PC2, 
-                   color=exposure, text(label= name))) + 
-  geom_point(size=4,) +
-  stat_ellipse()+
-  ggtitle("Male cerebellum")+
+                   color=exposure,
+                   shape= exposure)) + 
+  stat_ellipse(aes(color= exposure))+
+  ggtitle("Male Striatum PCA")+
+  geom_point(size=3) +
+  scale_color_manual(values = c("#666666", "#FF66CC","#66CCCC","#9966FF")) +
+  scale_shape_manual(values = c(19, 15,17,18)) +
   xlab(paste0("PC1: ",
               percentVar[1],
               "% variance")) +
   ylab(paste0("PC2: ",
               percentVar[2],
-              "% variance"))
+              "% variance"))+ 
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.line = element_line(colour = "black"))
 PCA
 dev.off()
 PCA
@@ -136,37 +163,6 @@ summary(res_medium)
 summary(res_low)
 ```
 
-If we lower the false discovery rate threshold, we should also tell this value to results(), so that the function will use an alternative threshold for the optimal independent filtering step:
-```{r}
-table(res_high$padj < .05)
-```
-If we want to raise the log2 fold change threshold, so that we test for genes that show more substantial changes due to treatment, we simply supply a value on the log2 scale. For example, by specifying lfcThreshold=1, we test for genes that show significant effects of treatment on gene counts more than doubling or less than halving, because \(2^1 = 2\).
-```{r}
-table(res_high$padj < 0.1)
-```
-
-When conducting multiple testing we have to be cautious just reporting p values below a certain threshold because of the false discovery rate. If we assume the null hypothesis is true for all genes and we are interested in a significance level of 0.05. Then, by definition of the p value, we expect 5% of the genes to have a pvalue below 0.05.
-```{r}
-sum(!is.na(res_high$pvalue)) 
-```
-If we just considered the list of genes with a p value below 0.05 as differentially expressed, this list should therefore be expected to contain many false positives:
-```{r}
-round(sum(!is.na(res_high$pvalue)) * .05) # expected 'null' less than 0.05
-```
-
-```{r}
-sum(res_high$pvalue < .05, na.rm=TRUE) # observed p < .05
-```
-expected ratio of false positives in the set with p < .05
-```{r}
-round(sum(!is.na(res_high$pvalue))*.05 / sum(res_high$pvalue < .05, 
-                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
-```
-Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
-```{r}
-sum(res_high$padj < 0.1, 
-    na.rm=TRUE)
-```
 
 #***Annotating results***
 ```{r}
@@ -180,8 +176,6 @@ res_high$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to 
                      column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
                      keytype="GENEID", #our rownames are gene id's 
                      multiVals="first")
-
-head(res_high) #take a look at the row names and the symbol column.
 ```
 
 ```{r}
@@ -190,8 +184,6 @@ res_high$TXname <- mapIds(Rattus.norvegicus, #which annotation package model to 
                      column="TXNAME", #add a column of symbols associated with row.names arguments for the model
                      keytype="GENEID", #our rownames are gene id's 
                      multiVals="first")
-
-head(res_high) #take a look at the row names and the symbol column.
 ```
 
 ```{r}
@@ -200,7 +192,6 @@ res_high$ONTOLOGY <- mapIds(Rattus.norvegicus,
                      column="ONTOLOGYALL",
                      keytype="GENEID",
                      multiVals="first")
-head(res_high)
 ```
 
 ```{r}
@@ -209,7 +200,6 @@ res_high$Genename <- mapIds(Rattus.norvegicus,
                      column="GENENAME", #now add a column for gene names or gene description
                      keytype="GENEID",
                      multiVals="first")
-res_high
 ```
 
 ```{r}
@@ -218,7 +208,6 @@ res_high$GOID <- mapIds(Rattus.norvegicus,
                      column="GO", #now add a column for gene names or gene description
                      keytype="GENEID",
                      multiVals="first")
-res_high
 ```
 
 ```{r}
@@ -227,7 +216,6 @@ res_high$ensembl <- mapIds(Rattus.norvegicus,
                      column="ENSEMBL", #now add a column for gene names or gene description
                      keytype="GENEID",
                      multiVals="first")
-res_high
 ```
 ```{r}
 res_high$ENTREZID <- mapIds(Rattus.norvegicus,
@@ -235,7 +223,6 @@ res_high$ENTREZID <- mapIds(Rattus.norvegicus,
                      column="ENTREZID", #now add a column for gene names or gene description
                      keytype="GENEID",
                      multiVals="first")
-res_high
 ```
 
 ```{r}
@@ -244,8 +231,6 @@ res_medium$symbol <- mapIds(Rattus.norvegicus, #which annotation package model t
                      column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
                      keytype="GENEID", #our rownames are gene id's 
                      multiVals="first")
-
- #take a look at the row names and the symbol column.
 ```
 
 ```{r}
@@ -255,7 +240,6 @@ res_medium$TXname <- mapIds(Rattus.norvegicus, #which annotation package model t
                      keytype="GENEID", #our rownames are gene id's 
                      multiVals="first")
 
- #take a look at the row names and the symbol column.
 ```
 
 ```{r}
@@ -264,7 +248,6 @@ res_medium$ONTOLOGY <- mapIds(Rattus.norvegicus,
                      column="ONTOLOGYALL",
                      keytype="GENEID",
                      multiVals="first")
-
 ```
 
 ```{r}
@@ -273,7 +256,6 @@ res_medium$Genename <- mapIds(Rattus.norvegicus,
                      column="GENENAME", #now add a column for gene names or gene description
                      keytype="GENEID",
                      multiVals="first")
-
 ```
 
 ```{r}
@@ -282,7 +264,6 @@ res_medium$GOID <- mapIds(Rattus.norvegicus,
                      column="GO", #now add a column for gene names or gene description
                      keytype="GENEID",
                      multiVals="first")
-
 ```
 
 ```{r}
@@ -308,7 +289,6 @@ res_low$symbol <- mapIds(Rattus.norvegicus, #which annotation package model to u
                      keytype="GENEID", #our rownames are gene id's 
                      multiVals="first")
 
- #take a look at the row names and the symbol column.
 ```
 
 ```{r}
@@ -371,15 +351,20 @@ medium_resOrdered <- res_medium[order(res_medium$padj),]
 low_resOrdered <- res_low[order(res_low$padj),] #reorder the genes based on significance
 ```
 
+
+
+
 #***Plotting results***
 Heatmaps are a good way to visualize the most significant genes
 ```{r}
 mat <- assay(vsd)[ head(order(res_high$padj),
-                            30), #top 30 genes 
+                            20), #top 30 genes 
                        ]
 #mat <- mat - rowMeans(mat)
 df <- as.data.frame(colData(vsd)[,
                                      "exposure"])
+rownames(df)<-colnames(mat)
+colnames(df)[1]<- "Exposure"
 ```
 
 ```{r}
@@ -387,8 +372,10 @@ tiff(file = "Figures/heatmap/High_Male_CRBLM_heatmap.tiff", units="in", width=8,
 heatmap<-pheatmap(mat, 
          annotation_col=df,
          labels_row = High_resOrdered$symbol,
-         scale = "row",
          fontsize = 6,
+         scale = "row",
+         show_colnames = F,
+         cluster_cols = FALSE,
          main = "High Male Cerebellum Heatmap")
 heatmap
 dev.off()
@@ -402,8 +389,8 @@ M_vol1<- EnhancedVolcano(res_high,
     lab = res_high$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "High Exposure Male Cerebellum",
-    subtitle = "",
+    title = "Male Cerebellum",
+    subtitle = "High Exposure ",
     ylim = c(0, -log10(10e-8)),
     xlim = c(log2(10e-3), -log2(10e-3)),
     FCcutoff = 1.0,
@@ -413,8 +400,8 @@ M_vol1<- EnhancedVolcano(res_high,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -431,17 +418,19 @@ M_vol1
 High_resOrdered <- as.data.frame(High_resOrdered)
 write_tsv(High_resOrdered, file="Result_spreadsheets/High_Male_CRBLM_results.tsv")
 write.csv(High_resOrdered, file="Result_spreadsheets/High_Male_CRBLM_results.csv")
-write.csv(as.data.frame(assay(se1)), file= "Result_spreadsheets/High_Male_CRBLM_counts.csv")
+write.csv(as.data.frame(assay(se1)), file= "Result_spreadsheets/Male_CRBLM_counts.csv")
 ```
 
 
 ```{r}
 mat <- assay(vsd)[ head(order(res_medium$padj),
-                            30), #top 30 genes 
+                            20), #top 30 genes 
                        ]
 #mat <- mat - rowMeans(mat)
 df <- as.data.frame(colData(vsd)[,
                                      "exposure"])
+rownames(df)<-colnames(mat)
+colnames(df)[1]<- "Exposure"
 ```
 
 ```{r}
@@ -449,8 +438,10 @@ tiff(file = "Figures/heatmap/Medium_Male_CRBLM_heatmap.tiff", units="in", width=
 heatmap<-pheatmap(mat, 
          annotation_col=df,
          labels_row = medium_resOrdered$symbol,
-         scale = "row",
          fontsize = 6,
+         scale = "row",
+         show_colnames = F,
+         cluster_cols = FALSE,
          main = "Medium Male Cerebellum Heatmap")
 heatmap
 dev.off()
@@ -463,8 +454,8 @@ M_vol1<- EnhancedVolcano(res_medium,
     lab = res_medium$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Medium Exposure Male Cerebellum",
-    subtitle = "",
+    title = "Male Cerebellum",
+    subtitle = "Medium Exposure ",
     ylim = c(0, -log10(10e-8)),
     xlim = c(log2(10e-3), -log2(10e-3)),
     FCcutoff = 1.0,
@@ -474,8 +465,8 @@ M_vol1<- EnhancedVolcano(res_medium,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -496,20 +487,24 @@ write.csv(as.data.frame(assay(se1)), file= "Result_spreadsheets/Medium_Male_CRBL
 
 ```{r}
 mat <- assay(vsd)[ head(order(res_low$padj),
-                            30), #top 30 genes 
+                            20), #top 30 genes 
                        ]
 #mat <- mat - rowMeans(mat)
 df <- as.data.frame(colData(vsd)[,
                                      "exposure"])
+rownames(df)<-colnames(mat)
+colnames(df)[1]<- "Exposure"
 ```
 
 ```{r}
-tiff(file = "Figures/heatmap/Low_Male_CRBLM_heatmap.tiff", units="in", width=8, height=5, res=1000)
+tiff(file = "Figures/heatmap/low_Male_CRBLM_heatmap.tiff", units="in", width=8, height=5, res=1000)
 heatmap<-pheatmap(mat, 
          annotation_col=df,
          labels_row = low_resOrdered$symbol,
-         scale = "row",
          fontsize = 6,
+         scale = "row",
+         show_colnames = F,
+         cluster_cols = FALSE,
          main = "Low Male Cerebellum Heatmap")
 heatmap
 dev.off()
@@ -522,8 +517,8 @@ M_vol1<- EnhancedVolcano(res_low,
     lab = res_low$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Low Exposure Male Cerebellum",
-    subtitle = "",
+    title = "Male Cerebellum",
+    subtitle = "Low Exposure ",
     ylim = c(0, -log10(10e-8)),
     xlim = c(log2(10e-3), -log2(10e-3)),
     FCcutoff = 1.0,
@@ -533,8 +528,8 @@ M_vol1<- EnhancedVolcano(res_low,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -767,3 +762,75 @@ dot
 dev.off()
 dot
 ```
+
+#plotting individual genes of interest
+Using normalized counts (prebuilt into DESEQ2) which normalizes counts by the estimated size factors (or normalization factors if these were used) and adds a pseudocount of 1/2 to allow for log scale plotting.
+**drug metabolizing enzymes**
+```{r}
+top_gene<-read.csv("gene_list_drug_metabolizing_kegg_CRBLM.csv", header = FALSE)
+top_gene<-as.character(top_gene$V1)
+
+setdiff(top_gene,rownames(counts(dds))) #check if all genes of interest can be found in the rownames of the deseq object --> if not you will not be able to run the block of code. Character(0) or integer(0) is a what you want to see
+```
+```{r}
+stat.test<-read.csv("CRBLM_FDR.csv")
+stat.test$symbol<-factor(stat.test$symbol)
+stat.test$group2<-as.factor(stat.test$group2)
+stat.test$group1<-as.factor(stat.test$group1)
+stat.test
+```
+
+```{r}
+data_1 <- split(as.tibble(stat.test[,2:4]), as.factor(stat.test$symbol))
+```
+
+
+```{r message=FALSE}
+plot_list<-list()
+for (i in unique(1:length(top_gene))){
+  gene <- top_gene[i]
+  b<- plotCounts(dds, gene = gene, intgroup = "exposure",normalized = TRUE, returnData = TRUE)
+  z = max(b$count) + (max(b$count)*0.05)
+  d <- ggplot(b, aes(factor(exposure), count))+
+    geom_violin(mapping = aes(x = exposure, 
+                              y = count, 
+                              fill = exposure))+
+    #adding jitter to avoid overplotting
+    geom_point(mapping = aes(x = exposure, 
+                             y = count, 
+                             fill = exposure, 
+                             shape= exposure), 
+               size = 5, position = position_jitter(width = 0.3, height=0))+ 
+    scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.4)) +
+    stat_summary(mapping = aes(x = exposure, y = count), 
+                 geom = 'crossbar', 
+                 fun= 'mean', 
+                 colour = 'black', 
+                 width=0.2)+
+    scale_fill_manual(values = c("#666666", "#FF66CC","#66CCCC","#9966FF")) +
+    scale_shape_manual(values = c(19, 15,17,18)) +
+  labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
+  theme_classic(base_size = 20)+# changes the overall style of the plot
+  ggtitle(paste0(res_low$symbol[gene])) +
+  theme(
+    axis.text.x = element_text(colour = "black"),
+    axis.text.y = element_text(colour = "black"))+
+  stat_pvalue_manual(data_1[[i]], 
+    y.position = z, step.increase = 0.2,
+    label = "p = {scales::pvalue(p.adj)}", hide.ns = TRUE
+    )
+  plot_list[[gene]] <- d
+}
+
+head(plot_list)
+```
+
+
+```{r warning=FALSE}
+# Export into pdf: display multiple plots on the same page
+ggexport(
+  plotlist = plot_list, filename = "Figures/male_CRBLM_cyp_plot.pdf", 
+  ncol = 1, nrow = 1, height = 7, width = 7, res = 600,pointsize = 8
+)
+```
+
