@@ -124,7 +124,7 @@ PCA <-ggplot(data, aes(PC1,
                    color=exposure,
                    shape= exposure)) + 
   stat_ellipse(aes(color= exposure))+
-  ggtitle("Male Striatum PCA")+
+  ggtitle("Male Cerebellum PCA")+
   geom_point(size=3) +
   scale_color_manual(values = c("#666666", "#FF66CC","#66CCCC","#9966FF")) +
   scale_shape_manual(values = c(19, 15,17,18)) +
