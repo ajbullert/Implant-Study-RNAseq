@@ -66,6 +66,7 @@ library(scRNAseq)
 library(VennDiagram)
 library(stringr)
 library(tibble)
+library(viridis)
 ```
 
 
@@ -135,7 +136,7 @@ PCA <-ggplot(data, aes(PC1,
               percentVar[2],
               "% variance"))+ 
   theme_bw() + 
-  theme(panel.border = element_blank(), 
+  theme(panel.border =element_rect(colour = "black", fill=NA, size=1), 
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(), 
         axis.line = element_line(colour = "black"))
@@ -405,7 +406,7 @@ M_vol1<- EnhancedVolcano(res_high,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
-    borderWidth = 1.0,
+    borderWidth = 0.5,
     borderColour = 'black')
 M_vol1
 dev.off()
@@ -470,7 +471,7 @@ M_vol1<- EnhancedVolcano(res_medium,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
-    borderWidth = 1.0,
+    borderWidth = 0.5,
     borderColour = 'black')
 M_vol1
 dev.off()
@@ -533,7 +534,7 @@ M_vol1<- EnhancedVolcano(res_low,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
-    borderWidth = 1.0,
+    borderWidth = 0.5,
     borderColour = 'black')
 M_vol1
 dev.off()
@@ -576,10 +577,23 @@ Mgse <- gseGO(geneList= gene_list,
 ```
 
 ```{r}
+data<-data.frame(Mgse)
+write.csv(data ,file="Figures/Enrichment/High_CRBLM_gene_enrichment.csv")
+
+```
+
+```{r}
 tiff(file = 'Figures/Enrichment/High_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
-dot<-dotplot(Mgse, showCategory=10, split=".sign") +
+dot<-dotplot(Mgse, showCategory=5, split=".sign") +
+     geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
   facet_grid(.~.sign)+
-  ggtitle("High Male Cerebellum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 30)))+
+  theme(axis.text.y = element_text(size = 12), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))+
+  ggtitle("High Male Cerebellum Gene Enrichment")  
 
 dot
 dev.off()
@@ -610,15 +624,29 @@ Mkk2 <- gseKEGG(geneList     = gene_list,
 ```
 
 ```{r}
+data<-data.frame(Mkk2)
+write.csv(data ,file="Figures/Enrichment/High_CRBLM_KEGG_enrichment.csv")
 
-tiff(file = 'Figures/Enrichment/High_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
-dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
+```
+
+
+```{r}
+
+tiff(file = 'Figures/Enrichment/High_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot2<-dotplot(Mkk2, showCategory=5, split=".sign") +
+    geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
   facet_grid(.~.sign)+
-  ggtitle("High Male Cerebellum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 30)))+
+  theme(axis.text.y = element_text(size = 12), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))+
+  ggtitle("High Male Cerebellum KEGG Enrichment")
 
-dot
+dot2
 dev.off()
-dot
+dot2
 ```
 
 ```{r}
@@ -651,14 +679,28 @@ Mgse <- gseGO(geneList= gene_list,
 ```
 
 ```{r}
-tiff(file = 'Figures/Enrichment/Medium_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
-dot<-dotplot(Mgse, showCategory=10, split=".sign") +
-  facet_grid(.~.sign)+
-  ggtitle("Medium Male Cerebellum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+data<-data.frame(Mgse)
+write.csv(data ,file="Figures/Enrichment/Med_CRBLM_gene_enrichment.csv")
 
-dot
+```
+
+
+```{r}
+tiff(file = 'Figures/Enrichment/Medium_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot3<-dotplot(Mgse, showCategory=5, split=".sign") +
+     geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
+  facet_grid(.~.sign)+
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 30)))+
+  theme(axis.text.y = element_text(size = 12), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))+
+  ggtitle("Medium Male Cerebellum Gene Enrichment")  
+
+dot3
 dev.off()
-dot
+dot3
 ```
 
 
@@ -684,15 +726,28 @@ Mkk2 <- gseKEGG(geneList     = gene_list,
 ```
 
 ```{r}
+data<-data.frame(Mkk2)
+write.csv(data ,file="Figures/Enrichment/Med_CRBLM_KEGG_enrichment.csv")
 
-tiff(file = 'Figures/Enrichment/Medium_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
-dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
+```
+
+```{r}
+
+tiff(file = 'Figures/Enrichment/Medium_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot4<-dotplot(Mkk2, showCategory=5, split=".sign") +
+   geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
   facet_grid(.~.sign)+
-  ggtitle("Medium Male Cerebellum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 30)))+
+  theme(axis.text.y = element_text(size = 12), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))+
+  ggtitle("Medium Male Cerebellum KEGG Enrichment")   
 
-dot
+dot4
 dev.off()
-dot
+dot4
 ```
 
 ```{r}
@@ -717,16 +772,29 @@ Mgse <- gseGO(geneList= gene_list,
              pAdjustMethod = "none")
 
 ```
+```{r}
+data<-data.frame(Mgse)
+write.csv(data ,file="Figures/Enrichment/Low_CRBLM_gene_enrichment.csv")
+
+```
+
 
 ```{r}
 tiff(file = 'Figures/Enrichment/Low_Male_CRBLM_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
-dot<-dotplot(Mgse, showCategory=10, split=".sign") +
+dot5<-dotplot(Mgse, showCategory=5, split=".sign") +
+     geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
   facet_grid(.~.sign)+
-  ggtitle("Low Male Cerebellum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 30)))+
+  theme(axis.text.y = element_text(size = 12), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))+
+  ggtitle("Low Male Cerebellum Gene Enrichment")
 
-dot
+dot5
 dev.off()
-dot
+dot5
 ```
 
 
@@ -752,16 +820,195 @@ Mkk2 <- gseKEGG(geneList     = gene_list,
 ```
 
 ```{r}
+data<-data.frame(Mkk2)
+write.csv(data ,file="Figures/Enrichment/Low_CRBLM_KEGG_enrichment.csv")
 
-tiff(file = 'Figures/Enrichment/Low_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=10, height=5, res=1000)
-dot<-dotplot(Mkk2, showCategory=10, split=".sign") +
-  facet_grid(.~.sign)+
-  ggtitle("Low Male Cerebellum KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))    
-
-dot
-dev.off()
-dot
 ```
+
+```{r}
+
+tiff(file = 'Figures/Enrichment/Low_Male_CRBLM_KEGG_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot6<-dotplot(Mkk2, showCategory=5, split=".sign") +
+     geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
+  facet_grid(.~.sign)+
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 30)))+
+  theme(axis.text.y = element_text(size = 12), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))+
+  ggtitle("Low Male Cerebellum KEGG Enrichment")  
+
+dot6
+dev.off()
+dot6
+```
+#disease ontology (DO) Female
+```{r}
+x<- res_high[order(res_high$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+
+gene_list<-x$log2FoldChange
+g_list<-data.frame(gene_list)
+colnames(g_list)<-"LFC"
+
+g_list$entrez<-x$ENTREZID
+
+
+hum_orthos<- orthologs(genes = g_list$entrez, species = "rat", human = FALSE)
+
+DO_data<-merge(g_list, hum_orthos, by.x = "entrez", by.y= "entrez", all.x = TRUE)
+
+#rename the listed Fold changes for the genes with the human equivalent for DO
+genes<-DO_data$LFC
+names(genes)<-DO_data$human_entrez
+genes<-genes[order(genes, decreasing=TRUE)]
+head(genes,10)
+```
+
+
+```{r}
+DO <- gseDO(gene          = genes,
+           minGSSize     = 120,
+           pvalueCutoff  = 0.2,
+           pAdjustMethod = "BH",
+           verbose       = FALSE)
+head(DO)
+```
+
+
+```{r}
+data<-data.frame(DO)
+write.csv(data ,file="Figures/Enrichment/High_CRBLM_disease_enrichment.csv")
+
+```
+
+```{r}
+tiff(file = 'Figures/Enrichment/High_CRBLM_disease_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot13<-dotplot(DO,showCategory=5, split=".sign") +
+  geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
+  facet_grid(.~.sign)+
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 25)))+
+  theme(axis.text.y = element_text(size = 16), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))
+dot13
+dev.off()
+dot13
+```
+
+```{r}
+x<- res_medium[order(res_medium$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+
+gene_list<-x$log2FoldChange
+g_list<-data.frame(gene_list)
+colnames(g_list)<-"LFC"
+
+g_list$entrez<-x$ENTREZID
+
+
+hum_orthos<- orthologs(genes = g_list$entrez, species = "rat", human = FALSE)
+
+DO_data<-merge(g_list, hum_orthos, by.x = "entrez", by.y= "entrez", all.x = TRUE)
+
+#rename the listed Fold changes for the genes with the human equivalent for DO
+genes<-DO_data$LFC
+names(genes)<-DO_data$human_entrez
+genes<-genes[order(genes, decreasing=TRUE)]
+head(genes,10)
+```
+
+
+```{r}
+DO <- gseDO(gene          = genes,
+           minGSSize     = 120,
+           pvalueCutoff  = 0.2,
+           pAdjustMethod = "BH",
+           verbose       = FALSE)
+head(DO)
+```
+
+
+```{r}
+data<-data.frame(DO)
+write.csv(data ,file="Figures/Enrichment/Med_CRBLM_disease_enrichment.csv")
+
+```
+
+```{r}
+tiff(file = 'Figures/Enrichment/Med_CRBLM_disease_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot14<-dotplot(DO,showCategory=5, split=".sign") +
+  geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
+  facet_grid(.~.sign)+
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 25)))+
+  theme(axis.text.y = element_text(size = 16), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))
+dot14
+dev.off()
+dot14
+```
+
+```{r}
+x<- res_low[order(res_low$log2FoldChange, decreasing = TRUE),]  #reorder the genes based on significance
+x<-na.omit(x)
+
+gene_list<-x$log2FoldChange
+g_list<-data.frame(gene_list)
+colnames(g_list)<-"LFC"
+
+g_list$entrez<-x$ENTREZID
+
+
+hum_orthos<- orthologs(genes = g_list$entrez, species = "rat", human = FALSE)
+
+DO_data<-merge(g_list, hum_orthos, by.x = "entrez", by.y= "entrez", all.x = TRUE)
+
+#rename the listed Fold changes for the genes with the human equivalent for DO
+genes<-DO_data$LFC
+names(genes)<-DO_data$human_entrez
+genes<-genes[order(genes, decreasing=TRUE)]
+head(genes,10)
+```
+
+
+```{r}
+DO <- gseDO(gene          = genes,
+           minGSSize     = 120,
+           pvalueCutoff  = 0.2,
+           pAdjustMethod = "BH",
+           verbose       = FALSE)
+head(DO)
+```
+
+
+```{r}
+data<-data.frame(DO)
+write.csv(data ,file="Figures/Enrichment/low_CRBLM_disease_enrichment.csv")
+
+```
+
+```{r}
+tiff(file = 'Figures/Enrichment/low_CRBLM_disease_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot15<-dotplot(DO,showCategory=5, split=".sign") +
+  geom_point(shape = 1,colour = "black") +
+  scale_color_viridis(option = "inferno", direction = -1) +
+  facet_grid(.~.sign)+
+  theme(panel.spacing = unit(0.5, "cm",data = NULL), panel.grid.minor = element_blank())+
+  scale_y_discrete(labels = function(x) ifelse(str_detect(x, "gap"), "", str_wrap(x, width = 25)))+
+  theme(axis.text.y = element_text(size = 16), 
+        strip.background = element_blank(), strip.text.x = element_text(size = 16)) +
+  theme(legend.text = element_text(size = 10),legend.key.width= unit(0.3, 'cm'))
+dot15
+dev.off()
+dot15
+```
+
 
 #plotting individual genes of interest
 Using normalized counts (prebuilt into DESEQ2) which normalizes counts by the estimated size factors (or normalization factors if these were used) and adds a pseudocount of 1/2 to allow for log scale plotting.
